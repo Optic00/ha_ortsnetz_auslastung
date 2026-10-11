@@ -27,7 +27,7 @@
       }
     },
     "error": {
-      "invalid_api_url": "Gib eine gültige HTTPS-Adresse ein, z. B. https://www.ortsnetz-auslastung.de."
+      "invalid_api_url": "Gib eine gültige HTTPS-Adresse ein."
     }
   },
   "options": {
@@ -58,7 +58,7 @@
       }
     },
     "error": {
-      "invalid_api_url": "Gib eine gültige HTTPS-Adresse ein, z. B. https://www.ortsnetz-auslastung.de."
+      "invalid_api_url": "Gib eine gültige HTTPS-Adresse ein."
     }
   }
 }
