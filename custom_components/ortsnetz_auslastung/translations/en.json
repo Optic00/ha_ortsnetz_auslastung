@@ -25,6 +25,9 @@
           }
         }
       }
+    },
+    "error": {
+      "invalid_api_url": "Enter a valid HTTPS URL, e.g. https://www.ortsnetz-auslastung.de."
     }
   },
   "options": {
@@ -53,6 +56,9 @@
           }
         }
       }
+    },
+    "error": {
+      "invalid_api_url": "Enter a valid HTTPS URL, e.g. https://www.ortsnetz-auslastung.de."
     }
   }
 }
