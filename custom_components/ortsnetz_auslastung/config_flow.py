@@ -8,6 +8,7 @@ from homeassistant.helpers import selector
 from .const import CONF_API_URL, CONF_GRID_FREQUENCY_ENTITY, CONF_L1_ENTITY, CONF_L2_ENTITY, CONF_L3_ENTITY, CONF_LATITUDE, CONF_LONGITUDE, CONF_PLANT_CAPACITY_KWP, CONF_PV_FORECAST_ENTITY, CONF_SMARTMETER_MODEL, DOMAIN
 
 PHASE_VOLTAGES_SECTION = "phase_voltages"
+OPTIONAL_FIELDS = (CONF_GRID_FREQUENCY_ENTITY, CONF_PLANT_CAPACITY_KWP, CONF_PV_FORECAST_ENTITY, CONF_SMARTMETER_MODEL)
 
 
 def _required_field(key: str, validator, values: dict, fallback=None):
@@ -18,9 +19,9 @@ def _required_field(key: str, validator, values: dict, fallback=None):
 
 
 def _optional_field(key: str, validator, values: dict):
-    """Show an optional field only with a default when a value was saved."""
+    """Suggest a saved value without a default, so clearing the field removes it."""
     if values.get(key):
-        return vol.Optional(key, default=values[key]), validator
+        return vol.Optional(key, description={"suggested_value": values[key]}), validator
     return vol.Optional(key), validator
 
 
@@ -47,7 +48,8 @@ def _settings_schema(hass, values: dict) -> vol.Schema:
 
 def _flatten_sections(user_input: dict) -> dict:
     """Keep the stored config flat although the form groups phase inputs."""
-    data = dict(user_input)
+    # Store cleared optional fields as None so they override values from the initial setup.
+    data = dict.fromkeys(OPTIONAL_FIELDS) | user_input
     data.update(data.pop(PHASE_VOLTAGES_SECTION, {}))
     return data
 
