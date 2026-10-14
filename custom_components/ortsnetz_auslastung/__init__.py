@@ -82,10 +82,14 @@ async def _send(hass: HomeAssistant, entry: ConfigEntry) -> None:
     url = data[CONF_API_URL].rstrip("/")
     if not url.endswith("/v1/measurements"):
         url = f"{url}/v1/measurements"
+    # Entries saved before the HTTPS check may still contain an http:// address.
+    if not url.lower().startswith("https://"):
+        _LOGGER.error("Ortsnetz-Auslastung sendet keine Messung: Die API-Adresse muss mit https:// beginnen; bitte unter Konfigurieren korrigieren")
+        return
     session = async_get_clientsession(hass)
     for attempt in range(2):
         try:
-            async with session.post(url, json=payload, timeout=10) as response:
+            async with session.post(url, json=payload, timeout=10, allow_redirects=False) as response:
                 if response.status < 300:
                     result = await response.json(content_type=None)
                     status = result.get("status") if isinstance(result, dict) else None
