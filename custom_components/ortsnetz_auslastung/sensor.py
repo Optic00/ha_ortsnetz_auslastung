@@ -29,6 +29,7 @@ class VoltageStatusSensor(SensorEntity):
     """Expose the last server-evaluated voltage status."""
 
     _attr_has_entity_name = True
+    _attr_should_poll = False
     _attr_name = "Netzspannungsstatus"
     _attr_icon = "mdi:transmission-tower"
 
@@ -59,9 +60,10 @@ class VoltageStatusSensor(SensorEntity):
         )
 
     @callback
-    def _async_update_status(self, status: dict[str, str]) -> None:
+    def _async_update_status(self, status: dict[str, str] | None) -> None:
         """Store a dispatcher update in Home Assistant's event loop."""
         self._status = status
+        self._attr_available = status is not None
         self.async_write_ha_state()
 
 
@@ -69,6 +71,7 @@ class BatteryStorageRecommendationSensor(SensorEntity):
     """Expose the API's battery storage recommendation."""
 
     _attr_has_entity_name = True
+    _attr_should_poll = False
     _attr_name = "Batteriespeicherempfehlung"
     _attr_icon = "mdi:battery-sync-outline"
 
@@ -93,7 +96,8 @@ class BatteryStorageRecommendationSensor(SensorEntity):
         )
 
     @callback
-    def _async_update_recommendation(self, recommendation: str) -> None:
+    def _async_update_recommendation(self, recommendation: str | None) -> None:
         """Store a dispatcher update in Home Assistant's event loop."""
         self._recommendation = recommendation
+        self._attr_available = recommendation is not None
         self.async_write_ha_state()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import section
@@ -8,6 +10,7 @@ from homeassistant.helpers import selector
 from .const import CONF_API_URL, CONF_GRID_FREQUENCY_ENTITY, CONF_L1_ENTITY, CONF_L2_ENTITY, CONF_L3_ENTITY, CONF_LATITUDE, CONF_LONGITUDE, CONF_PLANT_CAPACITY_KWP, CONF_PV_FORECAST_ENTITY, CONF_SMARTMETER_MODEL, DOMAIN
 
 PHASE_VOLTAGES_SECTION = "phase_voltages"
+OPTIONAL_FIELDS = (CONF_GRID_FREQUENCY_ENTITY, CONF_PLANT_CAPACITY_KWP, CONF_PV_FORECAST_ENTITY, CONF_SMARTMETER_MODEL)
 
 
 def _required_field(key: str, validator, values: dict, fallback=None):
@@ -18,10 +21,28 @@ def _required_field(key: str, validator, values: dict, fallback=None):
 
 
 def _optional_field(key: str, validator, values: dict):
-    """Show an optional field only with a default when a value was saved."""
+    """Suggest a saved value without a default, so clearing the field removes it."""
     if values.get(key):
-        return vol.Optional(key, default=values[key]), validator
+        return vol.Optional(key, description={"suggested_value": values[key]}), validator
     return vol.Optional(key), validator
+
+
+def _valid_api_url(url: str) -> bool:
+    """Accept only HTTPS addresses with a host so coordinates are not sent in clear text."""
+    try:
+        parts = urlsplit(url)
+        parts.port  # raises ValueError for an invalid port
+    except ValueError:
+        return False
+    return parts.scheme == "https" and bool(parts.hostname) and not any(char.isspace() for char in url)
+
+
+def _validate_settings(data: dict) -> dict:
+    """Return form errors for settings that the schema alone cannot check."""
+    data[CONF_API_URL] = data[CONF_API_URL].strip()
+    if not _valid_api_url(data[CONF_API_URL]):
+        return {CONF_API_URL: "invalid_api_url"}
+    return {}
 
 
 def _settings_schema(hass, values: dict) -> vol.Schema:
@@ -47,7 +68,8 @@ def _settings_schema(hass, values: dict) -> vol.Schema:
 
 def _flatten_sections(user_input: dict) -> dict:
     """Keep the stored config flat although the form groups phase inputs."""
-    data = dict(user_input)
+    # Store cleared optional fields as None so they override values from the initial setup.
+    data = dict.fromkeys(OPTIONAL_FIELDS) | user_input
     data.update(data.pop(PHASE_VOLTAGES_SECTION, {}))
     return data
 
@@ -56,10 +78,14 @@ class OrtsnetzConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 3
 
     async def async_step_user(self, user_input=None):
+        values, errors = {}, {}
         if user_input is not None:
-            return self.async_create_entry(title="Ortsnetz-Auslastung", data=_flatten_sections(user_input))
+            values = _flatten_sections(user_input)
+            errors = _validate_settings(values)
+            if not errors:
+                return self.async_create_entry(title="Ortsnetz-Auslastung", data=values)
 
-        return self.async_show_form(step_id="user", data_schema=_settings_schema(self.hass, {}))
+        return self.async_show_form(step_id="user", data_schema=_settings_schema(self.hass, values), errors=errors)
 
     @staticmethod
     def async_get_options_flow(config_entry):
@@ -70,11 +96,16 @@ class OrtsnetzOptionsFlow(config_entries.OptionsFlow):
     """Edit non-secret settings after setup."""
 
     async def async_step_init(self, user_input=None):
+        values, errors = {**self.config_entry.data, **self.config_entry.options}, {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=_flatten_sections(user_input))
+            data = _flatten_sections(user_input)
+            errors = _validate_settings(data)
+            if not errors:
+                return self.async_create_entry(title="", data=data)
+            values.update(data)
 
-        values = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(
             step_id="init",
             data_schema=_settings_schema(self.hass, values),
+            errors=errors,
         )

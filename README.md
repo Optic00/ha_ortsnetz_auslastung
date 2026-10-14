@@ -13,7 +13,7 @@ Für eine Karte der öffentlichen Messpunkte steht zusätzlich das Community-Pro
 - Home Assistant mit installiertem [HACS](https://hacs.xyz/)
 - Drei numerische `sensor`-Entitäten für L1, L2 und L3; die Zustände müssen Voltwerte enthalten, z. B. `229.8`
 
-Nach der ersten erfolgreichen Übertragung legt die Integration zusätzlich die Entitäten **Netzspannungsstatus** und **Batteriespeicherempfehlung** an. Der Netzspannungsstatus ist der jeweils schlechteste Phasenstatus (`Normal`, `Warnung` oder `Kritisch`); die Attribute `L1`, `L2` und `L3` zeigen die Einzelbewertungen. Die Batteriespeicherempfehlung ist bei Überspannung `Laden`, bei Unterspannung `Entladen` und bei normaler Spannung `Keine Aktion`. Bei gleichzeitiger Über- und Unterspannung hat `Entladen` Vorrang. Beide Werte kommen in der Antwort der bestehenden Messübertragung zurück und erzeugen keinen zusätzlichen API-Aufruf.
+Beim Einrichten legt die Integration zusätzlich die Entitäten **Netzspannungsstatus** und **Batteriespeicherempfehlung** an; ihre Werte erscheinen nach der ersten erfolgreichen Übertragung. Der Netzspannungsstatus ist der jeweils schlechteste Phasenstatus (`Normal`, `Warnung` oder `Kritisch`); die Attribute `L1`, `L2` und `L3` zeigen die Einzelbewertungen. Die Batteriespeicherempfehlung ist bei Überspannung `Laden`, bei Unterspannung `Entladen` und bei normaler Spannung `Keine Aktion`. Bei gleichzeitiger Über- und Unterspannung hat `Entladen` Vorrang. Beide Werte kommen in der Antwort der bestehenden Messübertragung zurück und erzeugen keinen zusätzlichen API-Aufruf. Schlägt eine Übertragung auch im zweiten Versuch fehl oder wird sie wegen eines fehlenden oder unplausiblen Spannungswerts übersprungen, sind beide Entitäten nicht verfügbar, bis die API wieder einen gültigen Wert liefert.
 
 - Optional: Eine numerische Forecast-Sensor-Entität mit dem erwarteten PV-Tagesertrag in kWh
 - Eine numerische Sensor-Entität für die Netzfrequenz in Hz, z. B. `50.01`
@@ -95,7 +95,7 @@ API-Adresse, Sensoren, Koordinaten und PV-Angaben können nach der Einrichtung u
 
 ## Datenschutz
 
-Die Integration übermittelt Koordinaten, Zeitstempel, die drei Spannungswerte, Netzfrequenz sowie Angaben zu PV-Anlage und Forecast. Optional wird Hersteller und Typ des Smartmeters übertragen; diese Angabe ist ausschließlich im geschützten Adminbereich sichtbar. Die öffentliche Karte zeigt Koordinaten nur gerastert mit etwa 100 Metern Genauigkeit. Verwende bei Bedarf die überschreibbaren Koordinaten, um einen alternativen Standort zu senden.
+Die Integration übermittelt Koordinaten, Zeitstempel, die drei Spannungswerte, Netzfrequenz sowie Angaben zu PV-Anlage und Forecast. Optional wird Hersteller und Typ des Smartmeters übertragen; diese Angabe ist ausschließlich im geschützten Adminbereich sichtbar. Die öffentliche Karte zeigt Koordinaten nur gerastert mit etwa 100 Metern Genauigkeit. Die Integration sendet die eingetragenen Koordinaten jedoch ungerundet an den Server; die Rasterung betrifft nur die öffentliche Karte. Verwende bei Bedarf die überschreibbaren Koordinaten, um einen alternativen Standort zu senden.
 
 ## Kontakt
 

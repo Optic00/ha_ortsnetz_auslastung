@@ -25,6 +25,9 @@
           }
         }
       }
+    },
+    "error": {
+      "invalid_api_url": "Enter a valid HTTPS URL."
     }
   },
   "options": {
@@ -53,6 +56,9 @@
           }
         }
       }
+    },
+    "error": {
+      "invalid_api_url": "Enter a valid HTTPS URL."
     }
   }
 }

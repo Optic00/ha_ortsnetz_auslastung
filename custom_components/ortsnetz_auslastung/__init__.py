@@ -5,14 +5,16 @@ import logging
 import math
 from datetime import UTC, datetime, timedelta
 
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util.unit_conversion import EnergyConverter
+from homeassistant.loader import async_get_integration
 
-from .const import CONF_API_URL, CONF_GRID_FREQUENCY_ENTITY, CONF_L1_ENTITY, CONF_L2_ENTITY, CONF_L3_ENTITY, CONF_LATITUDE, CONF_LONGITUDE, CONF_PLANT_CAPACITY_KWP, CONF_PV_FORECAST_ENTITY, CONF_SMARTMETER_MODEL, DOMAIN, INTEGRATION_VERSION, MAX_PHASE_VOLTAGE_V, MIN_PHASE_VOLTAGE_V, PLATFORMS, status_signal, storage_recommendation_signal
+from .const import CONF_API_URL, CONF_GRID_FREQUENCY_ENTITY, CONF_L1_ENTITY, CONF_L2_ENTITY, CONF_L3_ENTITY, CONF_LATITUDE, CONF_LONGITUDE, CONF_PLANT_CAPACITY_KWP, CONF_PV_FORECAST_ENTITY, CONF_SMARTMETER_MODEL, DOMAIN, MAX_PHASE_VOLTAGE_V, MIN_PHASE_VOLTAGE_V, PLATFORMS, status_signal, storage_recommendation_signal
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,12 +49,19 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _publish(hass: HomeAssistant, entry: ConfigEntry, status: dict | None = None, recommendation: str | None = None) -> None:
+    """Update both sensors; None marks a value as unavailable."""
+    async_dispatcher_send(hass, status_signal(entry.entry_id), status)
+    async_dispatcher_send(hass, storage_recommendation_signal(entry.entry_id), recommendation)
+
+
 async def _send(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # Options override the initial setup data.
     data = {**entry.data, **entry.options}
     values = [_value(hass, data[key], "V") for key in (CONF_L1_ENTITY, CONF_L2_ENTITY, CONF_L3_ENTITY)]
     if any(value is None for value in values):
         _LOGGER.warning("Spannungssensor für Ortsnetz-Auslastung ist nicht verfügbar")
+        _publish(hass, entry)
         return
     invalid_phases = [
         f"L{index}={value:g} V"
@@ -65,16 +74,17 @@ async def _send(hass: HomeAssistant, entry: ConfigEntry) -> None:
             "Erwartet werden Werte zwischen %g und %g V; Sensor-Auswahl und Einheit prüfen.",
             ", ".join(invalid_phases), MIN_PHASE_VOLTAGE_V, MAX_PHASE_VOLTAGE_V,
         )
+        _publish(hass, entry)
         return
     payload = {
         "observed_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "latitude": data[CONF_LATITUDE], "longitude": data[CONF_LONGITUDE],
         "l1_v": values[0], "l2_v": values[1], "l3_v": values[2],
-        "integration_version": INTEGRATION_VERSION,
+        "integration_version": str((await async_get_integration(hass, DOMAIN)).version),
     }
     if data.get(CONF_PLANT_CAPACITY_KWP) is not None:
         payload[CONF_PLANT_CAPACITY_KWP] = data[CONF_PLANT_CAPACITY_KWP]
-    smartmeter_model = data.get(CONF_SMARTMETER_MODEL, "").strip()
+    smartmeter_model = (data.get(CONF_SMARTMETER_MODEL) or "").strip()
     if smartmeter_model:
         payload[CONF_SMARTMETER_MODEL] = smartmeter_model
     forecast_entity = data.get(CONF_PV_FORECAST_ENTITY)
@@ -98,44 +108,52 @@ async def _send(hass: HomeAssistant, entry: ConfigEntry) -> None:
     url = data[CONF_API_URL].rstrip("/")
     if not url.endswith("/v1/measurements"):
         url = f"{url}/v1/measurements"
+    # Entries saved before the HTTPS check may still contain an http:// address.
+    if not url.lower().startswith("https://"):
+        _LOGGER.error("Ortsnetz-Auslastung sendet keine Messung: Die API-Adresse muss mit https:// beginnen; bitte unter Konfigurieren korrigieren")
+        return
     session = async_get_clientsession(hass)
     for attempt in range(2):
         try:
-            async with session.post(url, json=payload, timeout=10) as response:
+            async with session.post(url, json=payload, timeout=10, allow_redirects=False) as response:
                 if response.status < 300:
-                    result = await response.json(content_type=None)
-                    status = result.get("status") if isinstance(result, dict) else None
-                    if isinstance(status, dict) and all(status.get(key) in {"green", "yellow", "red"} for key in ("l1", "l2", "l3", "overall")):
-                        async_dispatcher_send(hass, status_signal(entry.entry_id), status)
-                    else:
+                    try:
+                        result = await response.json(content_type=None)
+                    except ValueError:
+                        _LOGGER.warning("Ortsnetz-API lieferte kein gültiges JSON")
+                        result = None
+                    if not isinstance(result, dict):
+                        result = {}
+                    # Tuples instead of sets: unexpected lists or dicts must not raise TypeError.
+                    status = result.get("status")
+                    if not (isinstance(status, dict) and all(status.get(key) in ("green", "yellow", "red") for key in ("l1", "l2", "l3", "overall"))):
                         _LOGGER.debug("Ortsnetz-API lieferte noch keinen Spannungsstatus")
-                    recommendation = result.get("storage_recommendation") if isinstance(result, dict) else None
-                    if recommendation in {"charge", "discharge", "none"}:
-                        async_dispatcher_send(hass, storage_recommendation_signal(entry.entry_id), recommendation)
+                        status = None
+                    recommendation = result.get("storage_recommendation")
+                    if recommendation not in ("charge", "discharge", "none"):
+                        recommendation = None
+                    _publish(hass, entry, status, recommendation)
                     return
                 _LOGGER.warning("Ortsnetz-API antwortete mit HTTP %s", response.status)
-        except (asyncio.TimeoutError, OSError) as error:
+        except (asyncio.TimeoutError, aiohttp.ClientError, OSError) as error:
             _LOGGER.warning("Ortsnetz-Messung konnte nicht gesendet werden: %s", error)
         if attempt == 0:
             await asyncio.sleep(5)
+    _publish(hass, entry)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    hass.data.setdefault(DOMAIN, {})
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    async def scheduled_send(_: datetime) -> None:
-        """Send from Home Assistant's event loop at each interval."""
-        await _send(hass, entry)
+    @callback
+    def start_send(_: datetime | None = None) -> None:
+        """Run each send as an entry task so unloading cancels it, including the retry wait."""
+        entry.async_create_background_task(hass, _send(hass, entry), f"{DOMAIN}_send_{entry.entry_id}")
 
-    cancel = async_track_time_interval(hass, scheduled_send, timedelta(minutes=5))
-    hass.data[DOMAIN][entry.entry_id] = cancel
-    hass.async_create_task(_send(hass, entry))
+    entry.async_on_unload(async_track_time_interval(hass, start_send, timedelta(minutes=5)))
+    start_send()
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    cancel = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-    if cancel:
-        cancel()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
