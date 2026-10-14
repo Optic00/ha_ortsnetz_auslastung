@@ -61,7 +61,7 @@ async def _send(hass: HomeAssistant, entry: ConfigEntry) -> None:
     }
     if data.get(CONF_PLANT_CAPACITY_KWP) is not None:
         payload[CONF_PLANT_CAPACITY_KWP] = data[CONF_PLANT_CAPACITY_KWP]
-    smartmeter_model = data.get(CONF_SMARTMETER_MODEL, "").strip()
+    smartmeter_model = (data.get(CONF_SMARTMETER_MODEL) or "").strip()
     if smartmeter_model:
         payload[CONF_SMARTMETER_MODEL] = smartmeter_model
     forecast_entity = data.get(CONF_PV_FORECAST_ENTITY)
