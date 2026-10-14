@@ -5,7 +5,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
@@ -104,21 +104,17 @@ async def _send(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    hass.data.setdefault(DOMAIN, {})
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    async def scheduled_send(_: datetime) -> None:
-        """Send from Home Assistant's event loop at each interval."""
-        await _send(hass, entry)
+    @callback
+    def start_send(_: datetime | None = None) -> None:
+        """Run each send as an entry task so unloading cancels it, including the retry wait."""
+        entry.async_create_background_task(hass, _send(hass, entry), f"{DOMAIN}_send_{entry.entry_id}")
 
-    cancel = async_track_time_interval(hass, scheduled_send, timedelta(minutes=5))
-    hass.data[DOMAIN][entry.entry_id] = cancel
-    hass.async_create_task(_send(hass, entry))
+    entry.async_on_unload(async_track_time_interval(hass, start_send, timedelta(minutes=5)))
+    start_send()
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    cancel = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-    if cancel:
-        cancel()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
