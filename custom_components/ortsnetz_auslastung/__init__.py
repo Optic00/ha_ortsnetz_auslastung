@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -35,12 +36,19 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _publish(hass: HomeAssistant, entry: ConfigEntry, status: dict | None = None, recommendation: str | None = None) -> None:
+    """Update both sensors; None marks a value as unavailable."""
+    async_dispatcher_send(hass, status_signal(entry.entry_id), status)
+    async_dispatcher_send(hass, storage_recommendation_signal(entry.entry_id), recommendation)
+
+
 async def _send(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # Options override the initial setup data.
     data = {**entry.data, **entry.options}
     values = [_value(hass, data[key]) for key in (CONF_L1_ENTITY, CONF_L2_ENTITY, CONF_L3_ENTITY)]
     if any(value is None for value in values):
         _LOGGER.warning("Spannungssensor für Ortsnetz-Auslastung ist nicht verfügbar")
+        _publish(hass, entry)
         return
     invalid_phases = [
         f"L{index}={value:g} V"
@@ -53,6 +61,7 @@ async def _send(hass: HomeAssistant, entry: ConfigEntry) -> None:
             "Erwartet werden Werte zwischen %g und %g V; Sensor-Auswahl und Einheit prüfen.",
             ", ".join(invalid_phases), MIN_PHASE_VOLTAGE_V, MAX_PHASE_VOLTAGE_V,
         )
+        _publish(hass, entry)
         return
     payload = {
         "observed_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -91,21 +100,29 @@ async def _send(hass: HomeAssistant, entry: ConfigEntry) -> None:
         try:
             async with session.post(url, json=payload, timeout=10, allow_redirects=False) as response:
                 if response.status < 300:
-                    result = await response.json(content_type=None)
-                    status = result.get("status") if isinstance(result, dict) else None
-                    if isinstance(status, dict) and all(status.get(key) in {"green", "yellow", "red"} for key in ("l1", "l2", "l3", "overall")):
-                        async_dispatcher_send(hass, status_signal(entry.entry_id), status)
-                    else:
+                    try:
+                        result = await response.json(content_type=None)
+                    except ValueError:
+                        _LOGGER.warning("Ortsnetz-API lieferte kein gültiges JSON")
+                        result = None
+                    if not isinstance(result, dict):
+                        result = {}
+                    # Tuples instead of sets: unexpected lists or dicts must not raise TypeError.
+                    status = result.get("status")
+                    if not (isinstance(status, dict) and all(status.get(key) in ("green", "yellow", "red") for key in ("l1", "l2", "l3", "overall"))):
                         _LOGGER.debug("Ortsnetz-API lieferte noch keinen Spannungsstatus")
-                    recommendation = result.get("storage_recommendation") if isinstance(result, dict) else None
-                    if recommendation in {"charge", "discharge", "none"}:
-                        async_dispatcher_send(hass, storage_recommendation_signal(entry.entry_id), recommendation)
+                        status = None
+                    recommendation = result.get("storage_recommendation")
+                    if recommendation not in ("charge", "discharge", "none"):
+                        recommendation = None
+                    _publish(hass, entry, status, recommendation)
                     return
                 _LOGGER.warning("Ortsnetz-API antwortete mit HTTP %s", response.status)
-        except (asyncio.TimeoutError, OSError) as error:
+        except (asyncio.TimeoutError, aiohttp.ClientError, OSError) as error:
             _LOGGER.warning("Ortsnetz-Messung konnte nicht gesendet werden: %s", error)
         if attempt == 0:
             await asyncio.sleep(5)
+    _publish(hass, entry)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

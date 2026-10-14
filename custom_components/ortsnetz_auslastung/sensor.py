@@ -60,9 +60,10 @@ class VoltageStatusSensor(SensorEntity):
         )
 
     @callback
-    def _async_update_status(self, status: dict[str, str]) -> None:
+    def _async_update_status(self, status: dict[str, str] | None) -> None:
         """Store a dispatcher update in Home Assistant's event loop."""
         self._status = status
+        self._attr_available = status is not None
         self.async_write_ha_state()
 
 
@@ -95,7 +96,8 @@ class BatteryStorageRecommendationSensor(SensorEntity):
         )
 
     @callback
-    def _async_update_recommendation(self, recommendation: str) -> None:
+    def _async_update_recommendation(self, recommendation: str | None) -> None:
         """Store a dispatcher update in Home Assistant's event loop."""
         self._recommendation = recommendation
+        self._attr_available = recommendation is not None
         self.async_write_ha_state()
