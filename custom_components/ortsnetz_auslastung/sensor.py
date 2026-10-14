@@ -29,6 +29,7 @@ class VoltageStatusSensor(SensorEntity):
     """Expose the last server-evaluated voltage status."""
 
     _attr_has_entity_name = True
+    _attr_should_poll = False
     _attr_name = "Netzspannungsstatus"
     _attr_icon = "mdi:transmission-tower"
 
@@ -69,6 +70,7 @@ class BatteryStorageRecommendationSensor(SensorEntity):
     """Expose the API's battery storage recommendation."""
 
     _attr_has_entity_name = True
+    _attr_should_poll = False
     _attr_name = "Batteriespeicherempfehlung"
     _attr_icon = "mdi:battery-sync-outline"
 
